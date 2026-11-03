@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Rashad's Flights</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+/* Layout: the live map on top, then a stack of boarding passes with a stub holding each flight number. */
+:root {
+  --sky: #dcebf5; --paper: #fbfdfe; --ink: #14283c; --muted: #4c6176; --line: #bccfdd;
+  --sunset: #c2410c; --on-sunset: #ffffff; --stub: #eef5fa;
+  --display: "Bricolage Grotesque", "Trebuchet MS", sans-serif;
+  --body: "Atkinson Hyperlegible", Verdana, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --sky: #0d1a28; --paper: #16273a; --ink: #eaf2f8; --muted: #a5b8c9; --line: #304659;
+  --sunset: #fb923c; --on-sunset: #1b0f05; --stub: #1c3145; color-scheme: dark;
+} }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--sky); color: var(--ink); font: 400 1.0625rem/1.5 var(--body); }
+.wrap {
+  max-width: 760px; margin: 0 auto; padding-block: 40px 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 24px;
+}
+header { display: grid; gap: 6px; }
+.eyebrow { font-size: .875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0; }
+h1 { font: 800 clamp(2rem, 6.5vw, 3rem)/1.08 var(--display); margin: 0; text-wrap: balance; }
+h2 { font: 800 1.375rem/1.2 var(--display); margin: 0; }
+#countdown { margin: 0; font-size: 1.1875rem; color: var(--muted); }
+
+.live { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; min-width: 0; }
+.live-text { padding: 18px 22px; display: grid; gap: 10px; }
+.live-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }
+#status { margin: 0; }
+#stats { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 0; }
+#stats div { display: grid; }
+#stats dd { margin: 0; font-size: 1.375rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+#updated { margin: 0; font-size: .875rem; color: var(--muted); }
+#map { height: min(58vh, 420px); width: 100%; background: var(--stub); }
+.plane-icon svg { width: 34px; height: 34px; fill: #c2410c; stroke: #ffffff; stroke-width: 1; display: block; }
+.leaflet-container a { color: #14283c; }
+
+.pass { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; display: grid; grid-template-columns: minmax(0, 1fr) 216px; overflow: hidden; }
+.main { padding: 22px; display: grid; gap: 18px; min-width: 0; align-content: start; }
+.top { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }
+.date { font-weight: 700; }
+.pill { font-size: .875rem; font-weight: 700; padding: 3px 11px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.pill.active { background: var(--sunset); border-color: var(--sunset); color: var(--on-sunset); }
+.route { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.end { display: grid; gap: 2px; min-width: 0; align-content: start; }
+.end.arrive { text-align: right; }
+.label { font-size: .8125rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.code { font: 800 clamp(2.5rem, 10vw, 3.5rem)/1 var(--display); }
+.city { color: var(--muted); }
+.time { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.yours { font-size: .9375rem; color: var(--muted); }
+.stub { background: var(--stub); border-left: 2px dashed var(--line); padding: 22px 18px; display: grid; gap: 12px; align-content: start; }
+.flightno { font: 800 1.75rem/1.1 var(--display); }
+.facts { font-size: .9375rem; color: var(--muted); }
+.stub a { color: var(--ink); font-size: .9375rem; }
+a:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+.how { display: grid; gap: 8px; }
+.how ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; max-width: 65ch; }
+#passes { display: grid; gap: 24px; }
+
+@media (max-width: 640px) {
+  .wrap { padding-block: 24px 40px; }
+  .pass { grid-template-columns: minmax(0, 1fr); }
+  .stub { border-left: 0; border-top: 2px dashed var(--line); }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Rashad's trip &middot; December 18&ndash;21, 2026</p>
+    <h1 id="headline">Rashad flies to Houston on December 18</h1>
+    <p id="countdown"></p>
+  </header>
+
+  <section class="live" aria-label="Live flight map">
+    <div class="live-text">
+      <div class="live-head"><h2 id="live-title">Live map</h2><span class="pill" id="live-pill">Not live yet</span></div>
+      <p id="status" role="status"></p>
+      <dl id="stats" hidden></dl>
+      <p id="updated"></p>
+    </div>
+    <div id="map"></div>
+  </section>
+
+  <div id="passes"></div>
+
+  <section class="how">
+    <h2>About this page</h2>
+    <ul>
+      <li>The map refreshes on its own every 30 seconds during a flight. There's no need to reload the page.</li>
+      <li>Plane positions come from volunteer-run receivers, so the signal can drop out for a while, especially at the gate.</li>
+      <li>Miles and minutes to go are estimates from the plane's current speed. This page doesn't get Southwest's delay or gate announcements.</li>
+      <li>Schedule last checked November 3, 2026. Southwest can change flight times.</li>
+    </ul>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const RELAY = "https://flight-data.warriorgoku18.workers.dev/";
+const PHX = { code: "PHX", city: "Phoenix", tz: "America/Phoenix", lat: 33.4343, lon: -112.0116 };
+const HOU = { code: "HOU", city: "Houston Hobby", short: "Houston", tz: "America/Chicago", lat: 29.6454, lon: -95.2789 };
+const FLIGHTS = [
+  { number: "3437", callsign: "SWA3437", aircraft: "Boeing 737-800", duration: "2 hr 30 min", from: PHX, to: HOU,
+    dep: "2026-12-19T03:15:00Z", arr: "2026-12-19T05:45:00Z" },
+  { number: "2153", callsign: "SWA2153", aircraft: "Boeing 737 MAX 8", duration: "2 hr 50 min", from: HOU, to: PHX,
+    dep: "2026-12-22T01:50:00Z", arr: "2026-12-22T04:40:00Z" }
+];
+const MINUTE = 6e4, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
+const WINDOW_BEFORE = HOUR, WINDOW_AFTER = 4 * HOUR;
+const POLL_MS = 30000;
+
+// ?test=SWA123 follows any Southwest flight, ?at=<ISO date> pretends it's that time. Both are for checking the page.
+const params = new URLSearchParams(location.search);
+const TEST = /^SWA\d{1,4}$/i.test(params.get("test") || "") ? params.get("test").toUpperCase() : null;
+const AT_OFFSET = Date.parse(params.get("at") || "") - Date.now();
+const clockNow = () => Date.now() + (AT_OFFSET || 0);
+
+const VIEWER_TZ = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return undefined; } })();
+const fmt = (iso, tz, opts) => new Date(iso).toLocaleString("en-US", { timeZone: tz, ...opts });
+const clock = (iso, tz) => fmt(iso, tz, { hour: "numeric", minute: "2-digit" });
+const stamp = (iso, tz) => fmt(iso, tz, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const longDay = (iso, tz) => fmt(iso, tz, { weekday: "long", month: "long", day: "numeric" });
+const name = (p) => p.short || p.city;
+const num = (n) => Math.round(n).toLocaleString("en-US");
+
+function until(ms) {
+  if (ms >= 2 * DAY) return Math.ceil(ms / DAY) + " days";
+  if (ms >= 2 * HOUR) return Math.round(ms / HOUR) + " hours";
+  const m = Math.max(1, Math.round(ms / MINUTE));
+  return m + (m === 1 ? " minute" : " minutes");
+}
+
+function miles(a, b) {
+  const rad = Math.PI / 180, dLat = (b.lat - a.lat) * rad, dLon = (b.lon - a.lon) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
+  return 3958.8 * 2 * Math.asin(Math.sqrt(h));
+}
+
+// How far the plane is from the straight line between the two airports, in rough miles.
+function milesOffRoute(p, f) {
+  const k = Math.cos(((f.from.lat + f.to.lat) / 2) * Math.PI / 180);
+  const ax = f.from.lon * k, ay = f.from.lat, bx = f.to.lon * k, by = f.to.lat, px = p.lon * k, py = p.lat;
+  const t = Math.min(1, Math.max(0, ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / ((bx - ax) ** 2 + (by - ay) ** 2)));
+  return Math.hypot(px - (ax + t * (bx - ax)), py - (ay + t * (by - ay))) * 69;
+}
+
+function activeFlight(now) {
+  return FLIGHTS.find(f => now < Date.parse(f.arr) + WINDOW_AFTER) || FLIGHTS[FLIGHTS.length - 1];
+}
+
+function inWindow(f, now) {
+  return now >= Date.parse(f.dep) - WINDOW_BEFORE && now < Date.parse(f.arr) + WINDOW_AFTER;
+}
+
+function scheduleSummary(now) {
+  const [out, back] = FLIGHTS;
+  if (now < Date.parse(out.dep)) return { h: "Rashad flies to Houston on " + longDay(out.dep, out.from.tz), c: "Scheduled to take off in " + until(Date.parse(out.dep) - now) + "." };
+  if (now < Date.parse(out.arr)) return { h: "Rashad's flight to Houston is underway", c: "Scheduled to land in " + until(Date.parse(out.arr) - now) + ". Check the map for where the plane is." };
+  if (now < Date.parse(back.dep)) return { h: "Rashad should be in Houston", c: "Flying back to Phoenix " + longDay(back.dep, back.from.tz) + ", in " + until(Date.parse(back.dep) - now) + "." };
+  if (now < Date.parse(back.arr)) return { h: "Rashad's flight to Phoenix is underway", c: "Scheduled to land in " + until(Date.parse(back.arr) - now) + ". Check the map for where the plane is." };
+  return { h: "Rashad should be back in Phoenix", c: "The last flight was scheduled to land " + stamp(back.arr, back.to.tz) + " Phoenix time." };
+}
+
+// Turns a position report into what the page should say. A flight number can cover other legs the same
+// day, so a plane that isn't on this route or is flying too early is treated as not ours yet.
+function interpret(data, f, now) {
+  const dep = Date.parse(f.dep), arr = Date.parse(f.arr);
+  const waiting = now < dep + 20 * MINUTE
+    ? { kind: "waiting", pill: "Waiting", text: `Waiting for a signal from the plane. It may still be on its way to ${name(f.from)} or parked at the gate.` }
+    : now < arr
+      ? { kind: "waiting", pill: "No signal", text: "No signal from the plane right now. It may be on the ground, or between receivers. The map will update when it's picked up." }
+      : { kind: "waiting", pill: "No signal", text: `No signal from the plane right now. It may have landed in ${name(f.to)} and shut down.` };
+
+  if (!data || !data.found) return waiting;
+  const pos = { lat: data.lat, lon: data.lon };
+
+  if (TEST) {
+    return data.onGround
+      ? { kind: "ground", pos, heading: data.heading, pill: "Test: on the ground", text: `Test mode: following ${TEST}, which is on the ground.` }
+      : { kind: "air", pos, heading: data.heading, data, pill: "Test: in the air", text: `Test mode: following ${TEST}, not Rashad's flight.` };
+  }
+
+  if (data.onGround) {
+    if (miles(pos, f.to) < 30) return { kind: "landed", pos, heading: data.heading, pill: "Landed", headline: `Rashad's flight has landed in ${name(f.to)}`, text: `The plane is on the ground in ${name(f.to)}.` };
+    if (miles(pos, f.from) < 30) {
+      const late = now > dep + 20 * MINUTE;
+      return { kind: "ground", pos, heading: data.heading, pill: late ? "Running late" : "At the airport",
+        headline: late ? `Rashad's flight hasn't taken off from ${name(f.from)} yet` : null,
+        text: late ? `The plane is still on the ground in ${name(f.from)}, past its scheduled ${clock(f.dep, f.from.tz)} departure. It may be delayed.` : `The plane is on the ground in ${name(f.from)}.` };
+    }
+    return waiting;
+  }
+
+  if (now < dep - 15 * MINUTE || milesOffRoute(pos, f) > 200) return waiting;
+  const left = miles(pos, f.to), mph = data.speedKnots ? data.speedKnots * 1.15078 : null;
+  const mins = mph && mph > 100 ? left / mph * 60 : null;
+  return { kind: "air", pos, heading: data.heading, data, left, mins, pill: "In the air",
+    headline: `Rashad is in the air on the way to ${name(f.to)}`,
+    countdown: mins ? `About ${until(mins * MINUTE)} from ${name(f.to)}, based on the plane's current speed.` : null,
+    text: `Flight ${f.number} is in the air and heading to ${name(f.to)}.` };
+}
+
+/* ---------- map ---------- */
+let map = null, planeMarker = null, drawnFor = null, routeLayer = null, followed = false;
+
+function setupMap() {
+  if (!window.L) { document.getElementById("map").hidden = true; return; }
+  map = L.map("map", { scrollWheelZoom: false });
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 12, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
+}
+
+function drawRoute(f) {
+  if (!map || drawnFor === f.number) return;
+  drawnFor = f.number;
+  if (routeLayer) routeLayer.remove();
+  const a = [f.from.lat, f.from.lon], b = [f.to.lat, f.to.lon];
+  routeLayer = L.layerGroup([
+    L.polyline([a, b], { color: "#c2410c", weight: 3, dashArray: "6 8" }),
+    L.circleMarker(a, { radius: 6, color: "#14283c", fillColor: "#ffffff", fillOpacity: 1 }).bindTooltip(f.from.code, { permanent: true, direction: "top" }),
+    L.circleMarker(b, { radius: 6, color: "#14283c", fillColor: "#ffffff", fillOpacity: 1 }).bindTooltip(f.to.code, { permanent: true, direction: "top" })
+  ]).addTo(map);
+  map.fitBounds([a, b], { padding: [40, 40] });
+}
+
+function drawPlane(state, f) {
+  if (!map) return;
+  if (!state.pos) { if (planeMarker) { planeMarker.remove(); planeMarker = null; } return; }
+  const turn = (state.heading ?? 90) - 90;
+  const icon = L.divIcon({ className: "plane-icon", iconSize: [34, 34], iconAnchor: [17, 17],
+    html: `<svg viewBox="0 0 24 24" style="transform:rotate(${turn}deg)"><path d="M21.5 12c0-.8-.7-1.5-1.5-1.5h-5.2L10 3H8l2.3 7.5H5.6L4 8.5H2.5L3.5 12l-1 3.5H4l1.6-2h4.7L8 21h2l4.8-7.5H20c.8 0 1.5-.7 1.5-1.5z"/></svg>` });
+  const at = [state.pos.lat, state.pos.lon];
+  if (planeMarker) { planeMarker.setLatLng(at); planeMarker.setIcon(icon); }
+  else planeMarker = L.marker(at, { icon, title: "Plane position", keyboard: false }).addTo(map);
+  if (!followed) {
+    followed = true;
+    map.fitBounds(L.latLngBounds([[f.from.lat, f.from.lon], [f.to.lat, f.to.lon], at]), { padding: [40, 40] });
+  }
+}
+
+/* ---------- page ---------- */
+function endHtml(iso, place, cls, label) {
+  const local = stamp(iso, place.tz), mine = VIEWER_TZ ? stamp(iso, VIEWER_TZ) : local;
+  return `<div class="end ${cls}"><span class="label">${label}</span><span class="code">${place.code}</span>
+    <span class="city">${place.city}</span><span class="time">${clock(iso, place.tz)}</span>
+    <span class="yours">${name(place).split(" ")[0]} time${mine !== local ? `<br>Your time: ${mine}` : ""}</span></div>`;
+}
+
+function renderPasses(now) {
+  const active = activeFlight(now);
+  document.getElementById("passes").innerHTML = FLIGHTS.map(f => {
+    const done = now >= Date.parse(f.arr) + WINDOW_AFTER;
+    const live = f === active && inWindow(f, now);
+    const pill = live ? "On the map" : done ? "Finished" : "Scheduled";
+    return `<article class="pass" aria-label="Southwest flight ${f.number}, ${f.from.city} to ${f.to.city}">
+      <div class="main">
+        <div class="top"><span class="date">${longDay(f.dep, f.from.tz)}</span><span class="pill ${live ? "active" : ""}">${pill}</span></div>
+        <div class="route">${endHtml(f.dep, f.from, "depart", "Departs")}${endHtml(f.arr, f.to, "arrive", "Arrives")}</div>
+      </div>
+      <aside class="stub">
+        <div><span class="label">Southwest flight</span><div class="flightno">${f.number}</div></div>
+        <div class="facts">${f.duration}<br>${f.aircraft}</div>
+        <a href="https://www.flightaware.com/live/flight/${f.callsign}" target="_blank" rel="noopener">Delays and gates on FlightAware</a>
+      </aside>
+    </article>`;
+  }).join("");
+}
+
+function renderHero(now, state) {
+  const s = scheduleSummary(now);
+  document.getElementById("headline").textContent = state && state.headline || s.h;
+  document.getElementById("countdown").textContent = state && state.countdown || (state && state.headline ? "" : s.c);
+}
+
+function renderLive(state, f, checkedAt) {
+  document.getElementById("live-title").textContent = TEST ? "Live map (test)" : `Live map: flight ${f.number}, ${f.from.code} to ${f.to.code}`;
+  const pill = document.getElementById("live-pill");
+  pill.textContent = state.pill;
+  pill.classList.toggle("active", state.kind === "air" || state.kind === "landed");
+  document.getElementById("status").textContent = state.text;
+
+  const stats = document.getElementById("stats");
+  stats.replaceChildren();
+  if (state.kind === "air") {
+    const rows = [];
+    if (state.data.altitudeFt != null) rows.push(["Altitude", num(state.data.altitudeFt) + " ft"]);
+    if (state.data.speedKnots != null) rows.push(["Speed", num(state.data.speedKnots * 1.15078) + " mph"]);
+    if (state.left != null) rows.push(["Miles to go", "About " + num(state.left)]);
+    if (state.mins != null) rows.push(["Time to go", "About " + until(state.mins * MINUTE)]);
+    for (const [k, v] of rows) {
+      const div = document.createElement("div"), dt = document.createElement("dt"), dd = document.createElement("dd");
+      dt.className = "label"; dt.textContent = k; dd.textContent = v;
+      div.append(dt, dd); stats.append(div);
+    }
+  }
+  stats.hidden = !stats.children.length;
+  document.getElementById("updated").textContent = checkedAt
+    ? "Last checked " + new Date(checkedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" }) + ". Refreshes every 30 seconds."
+    : "";
+  drawPlane(state, f);
+}
+
+async function tick() {
+  const now = clockNow(), f = activeFlight(now);
+  renderPasses(now);
+  drawRoute(f);
+
+  if (!TEST && !inWindow(f, now)) {
+    const before = now < Date.parse(f.dep);
+    renderHero(now, null);
+    renderLive(before
+      ? { kind: "idle", pill: "Not live yet", text: `The plane will show up here starting about an hour before flight ${f.number} leaves, on ${longDay(f.dep, f.from.tz)}. No need to do anything: just open this page then.` }
+      : { kind: "idle", pill: "Finished", text: "The trip is over, so the map has stopped updating." }, f, null);
+    return;
+  }
+
+  try {
+    const res = await fetch(RELAY + "?flight=" + (TEST || f.callsign));
+    if (!res.ok) throw new Error("relay " + res.status);
+    const data = await res.json();
+    const state = interpret(data, f, now);
+    renderHero(now, state);
+    renderLive(state, f, data.checkedAt);
+  } catch (e) {
+    renderHero(now, null);
+    renderLive({ kind: "error", pill: "Trying again", text: "The flight data isn't reachable right now. This page will keep trying." }, f, null);
+  }
+}
+
+setupMap();
+tick();
+setInterval(tick, POLL_MS);
+</script>
+</body>
+</html>
